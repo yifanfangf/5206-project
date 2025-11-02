@@ -75,6 +75,22 @@ CREATE TABLE order_reviews (
     review_comment_message TEXT
 );
 
+DROP TABLE IF EXISTS product_category_name_translation;
+CREATE TABLE product_category_name_translation (
+    product_category_name VARCHAR(100),
+    product_category_name_english VARCHAR(100)
+);
+
+DROP TABLE IF EXISTS geolocation;
+CREATE TABLE geolocation (
+    geolocation_zip_code_prefix INT,
+    geolocation_lat FLOAT,
+    geolocation_lng FLOAT,
+    geolocation_city VARCHAR(100),
+    geolocation_state VARCHAR(10)
+);
+
+
 -- 导入数据
 LOAD DATA LOCAL INFILE '/Users/fangyifan/Desktop/STAT5206 pro/olist_orders_dataset.csv'
 INTO TABLE orders
@@ -133,8 +149,40 @@ ENCLOSED BY '"'
 LINES TERMINATED BY '\n'
 IGNORE 1 ROWS;
 
+LOAD DATA LOCAL INFILE '/Users/fangyifan/Desktop/STAT5206 pro/product_category_name_translation.csv'
+INTO TABLE product_category_name_translation
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 ROWS;
+
+LOAD DATA LOCAL INFILE '/Users/fangyifan/Desktop/STAT5206 pro/olist_geolocation_dataset.csv'
+INTO TABLE geolocation
+FIELDS TERMINATED BY ','
+ENCLOSED BY '"'
+LINES TERMINATED BY '\n'
+IGNORE 1 ROWS;
+
+
 -- 创建增强整合表
 DROP TABLE IF EXISTS olist_consolidated_full;
+
+ALTER TABLE orders ADD INDEX idx_orders_order_id (order_id);
+ALTER TABLE orders ADD INDEX idx_orders_customer_id (customer_id);
+ALTER TABLE customers ADD INDEX idx_customers_customer_id (customer_id);
+ALTER TABLE customers ADD INDEX idx_customers_zip (customer_zip_code_prefix);
+ALTER TABLE order_items ADD INDEX idx_items_order_id (order_id);
+ALTER TABLE order_items ADD INDEX idx_items_product_id (product_id);
+ALTER TABLE order_items ADD INDEX idx_items_seller_id (seller_id);
+ALTER TABLE products ADD INDEX idx_products_product_id (product_id);
+ALTER TABLE products ADD INDEX idx_products_category (product_category_name);
+ALTER TABLE sellers ADD INDEX idx_sellers_seller_id (seller_id);
+ALTER TABLE sellers ADD INDEX idx_sellers_zip (seller_zip_code_prefix);
+ALTER TABLE order_reviews ADD INDEX idx_reviews_order_id (order_id);
+ALTER TABLE order_payments ADD INDEX idx_payments_order_id (order_id);
+ALTER TABLE product_category_name_translation ADD INDEX idx_translation_category (product_category_name);
+ALTER TABLE geolocation ADD INDEX idx_geolocation_zip_prefix (geolocation_zip_code_prefix);
+
 
 CREATE TABLE olist_consolidated_full AS
 SELECT DISTINCT
@@ -154,6 +202,12 @@ SELECT DISTINCT
     oi.price,
     oi.freight_value,
 
+    pt.product_category_name_english,
+    g.geolocation_lat,
+    g.geolocation_lng,
+    g.geolocation_city,
+    g.geolocation_state,
+
     LOWER(REPLACE(REPLACE(REPLACE(p.product_category_name, 'ã', 'a'), 'ç', 'c'), 'é', 'e')) AS product_category_ascii,
     p.product_name_lenght,
     p.product_description_lenght,
@@ -167,25 +221,46 @@ SELECT DISTINCT
     s.seller_state,
     s.seller_zip_code_prefix,
 
+    c.customer_unique_id,
     c.customer_zip_code_prefix,
     c.customer_city,
     c.customer_state,
 
-    pmt.payment_type,
-    pmt.payment_installments,
-    pmt.payment_value,
+    pmt.payment_methods,
+    pmt.max_installments,
+    pmt.total_payment_value,
 
-    r.review_score,
-    r.review_comment_title,
-    r.review_comment_message
+    r.avg_review_score,
+    r.sample_title,
+    r.sample_comment
 
 FROM order_items AS oi
 INNER JOIN orders AS o ON oi.order_id = o.order_id
 INNER JOIN products AS p ON oi.product_id = p.product_id
 INNER JOIN sellers AS s ON oi.seller_id = s.seller_id
 INNER JOIN customers AS c ON o.customer_id = c.customer_id
-LEFT JOIN order_payments AS pmt ON o.order_id = pmt.order_id
-LEFT JOIN order_reviews AS r ON o.order_id = r.order_id
+LEFT JOIN (
+    SELECT order_id,
+           SUM(payment_value) AS total_payment_value,
+           MAX(payment_installments) AS max_installments,
+           GROUP_CONCAT(DISTINCT payment_type) AS payment_methods
+    FROM order_payments
+    GROUP BY order_id
+) AS pmt ON o.order_id = pmt.order_id
+LEFT JOIN (
+    SELECT order_id,
+           AVG(review_score) AS avg_review_score,
+           MAX(review_comment_message) AS sample_comment,
+           MAX(review_comment_title) AS sample_title
+    FROM order_reviews
+    GROUP BY order_id
+) AS r ON o.order_id = r.order_id
+LEFT JOIN product_category_name_translation AS pt
+    ON p.product_category_name = pt.product_category_name
+
+LEFT JOIN geolocation AS g
+    ON g.geolocation_zip_code_prefix = c.customer_zip_code_prefix
+
 WHERE
     o.order_purchase_timestamp IS NOT NULL
     AND o.order_delivered_customer_date IS NOT NULL
