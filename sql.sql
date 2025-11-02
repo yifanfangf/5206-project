@@ -203,10 +203,6 @@ SELECT DISTINCT
     oi.freight_value,
 
     pt.product_category_name_english,
-    g.geolocation_lat,
-    g.geolocation_lng,
-    g.geolocation_city,
-    g.geolocation_state,
 
     LOWER(REPLACE(REPLACE(REPLACE(p.product_category_name, 'ã', 'a'), 'ç', 'c'), 'é', 'e')) AS product_category_ascii,
     p.product_name_lenght,
@@ -258,8 +254,6 @@ LEFT JOIN (
 LEFT JOIN product_category_name_translation AS pt
     ON p.product_category_name = pt.product_category_name
 
-LEFT JOIN geolocation AS g
-    ON g.geolocation_zip_code_prefix = c.customer_zip_code_prefix
 
 WHERE
     o.order_purchase_timestamp IS NOT NULL
@@ -270,4 +264,7 @@ WHERE
     AND oi.price IS NOT NULL
     AND oi.freight_value IS NOT NULL
     AND p.product_category_name IS NOT NULL
-    AND s.seller_city IS NOT NULL;
+    AND s.seller_city IS NOT NULL
+    AND r.avg_review_score IS NOT NULL;
+
+SELECT * FROM olist_consolidated_full;
